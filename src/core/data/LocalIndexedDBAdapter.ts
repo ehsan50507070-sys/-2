@@ -1328,6 +1328,20 @@ export class LocalIndexedDBAdapter implements IDataRepository {
     });
   }
 
+  private idbDeleteKeys(db: IDBDatabase, storeName: CollectionName, keys: string[]): Promise<void> {
+    if (keys.length === 0) return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(storeName, 'readwrite');
+      const store = tx.objectStore(storeName);
+      for (const k of keys) {
+        store.delete(k);
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error(`IDB delete failed: ${storeName}`));
+      tx.onabort = () => reject(new Error(`IDB delete aborted: ${storeName}`));
+    });
+  }
+
   private async flushAllToIdb(db: IDBDatabase, dataset: SeedDataset): Promise<void> {
     for (const col of ALL_COLLECTIONS) {
       const rows = dataset[col] as CollectionTypeMap[typeof col][];
@@ -1413,6 +1427,20 @@ export class LocalIndexedDBAdapter implements IDataRepository {
   ): Promise<void> {
     this.assertWriteAllowed(collection, 'write', item.schoolId, item);
     const list = this.cache[collection] as CollectionTypeMap[K][];
+    let staleKeys: string[] = [];
+    if (collection === 'school_branding_configs') {
+      staleKeys = list
+        .filter((existing) => existing.schoolId === item.schoolId && existing.id !== item.id)
+        .map((existing) => existing.id);
+      if (staleKeys.length > 0) {
+        const staleSet = new Set(staleKeys);
+        for (let i = list.length - 1; i >= 0; i -= 1) {
+          if (staleSet.has(list[i].id)) {
+            list.splice(i, 1);
+          }
+        }
+      }
+    }
     const idx = list.findIndex((existing) => existing.id === item.id);
     const normalized = normalizeRecordDefaults(item).record;
     const versioned =
@@ -1432,6 +1460,13 @@ export class LocalIndexedDBAdapter implements IDataRepository {
     } else {
       list.push(versioned);
     }
+    if (staleKeys.length > 0 && this.db) {
+      try {
+        await withTimeout(this.idbDeleteKeys(this.db, collection, staleKeys), `del_${collection}`);
+      } catch {
+        // ignore cleanup failure
+      }
+    }
     await this.persistItemToIdb(collection, [versioned]);
     this.emitChange({ type: 'put', collection, schoolId: versioned.schoolId });
   }
@@ -1445,6 +1480,17 @@ export class LocalIndexedDBAdapter implements IDataRepository {
       this.assertWriteAllowed(collection, 'write', item.schoolId, item);
     }
     const list = this.cache[collection] as CollectionTypeMap[K][];
+    const staleKeys: string[] = [];
+    if (collection === 'school_branding_configs') {
+      const incomingBySchool = new Map(items.map((it) => [it.schoolId, it.id]));
+      for (let i = list.length - 1; i >= 0; i -= 1) {
+        const incomingId = incomingBySchool.get(list[i].schoolId);
+        if (incomingId && list[i].id !== incomingId) {
+          staleKeys.push(list[i].id);
+          list.splice(i, 1);
+        }
+      }
+    }
     const indexById = new Map(list.map((existing, i) => [existing.id, i]));
     const persistedItems: CollectionTypeMap[K][] = [];
     for (const item of items) {
@@ -1465,6 +1511,13 @@ export class LocalIndexedDBAdapter implements IDataRepository {
         indexById.set(normalized.id, list.length);
         list.push(normalized);
         persistedItems.push(normalized);
+      }
+    }
+    if (staleKeys.length > 0 && this.db) {
+      try {
+        await withTimeout(this.idbDeleteKeys(this.db, collection, staleKeys), `del_${collection}`);
+      } catch {
+        // ignore cleanup failure
       }
     }
     await this.persistItemToIdb(collection, persistedItems);

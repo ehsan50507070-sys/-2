@@ -975,9 +975,8 @@ export const PrintProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const schoolMeta = useMemo<PrintSchoolMeta>(() => {
     const siteName = getLabel('site.name', OFFICIAL_SYSTEM_NAME_FA);
     const customFooter = getLabel('site.footer', activeSchool.signatureFooter);
-    const letterheadTitle = branding?.schoolDisplayName?.trim()
-      ? `${activeSchool.letterheadTitle} (${activeSchoolDisplayName})`
-      : activeSchool.letterheadTitle || activeSchool.name;
+    const letterheadTitle =
+      branding?.schoolDisplayName?.trim() || activeSchool.letterheadTitle || activeSchool.name;
 
     return {
       schoolName: activeSchoolDisplayName || activeSchool.name,
@@ -990,8 +989,8 @@ export const PrintProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       signatureFooter: activeSchool.signatureFooter || customFooter,
       logoUrl:
         schoolLogoUrl ||
-        globalSystemConfig?.systemLogoDataUrl ||
         activeSchool.logoDataUrl ||
+        globalSystemConfig?.systemLogoDataUrl ||
         DEFAULT_BRAND_LOGO_DATA_URL,
       siteName,
     };

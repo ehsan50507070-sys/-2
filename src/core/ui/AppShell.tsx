@@ -45,6 +45,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     logout,
     schools,
     allSchools,
+    activeSchool,
     educationalComplexes,
     activeSchoolId,
     setActiveSchoolId,
@@ -56,6 +57,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     unreadParentChatCount,
     notificationCenter,
     globalSystemConfig,
+    schoolBrandingConfigs,
     logSecurityEvent,
     panicModeState,
     isActiveSchoolPanicLocked,
@@ -80,7 +82,17 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const effectiveBrandLogo = globalSystemConfig?.systemLogoDataUrl || schoolLogoUrl || undefined;
+  const effectiveBrandLogo =
+    schoolLogoUrl || activeSchool?.logoDataUrl || globalSystemConfig?.systemLogoDataUrl || undefined;
+
+  const schoolDisplayNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const cfg of schoolBrandingConfigs) {
+      const custom = cfg.schoolDisplayName?.trim();
+      if (custom) map.set(cfg.schoolId, custom);
+    }
+    return map;
+  }, [schoolBrandingConfigs]);
 
   const handleLogout = useCallback(() => {
     setMobileMenuOpen(false);
@@ -246,12 +258,17 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               logoDataUrl={effectiveBrandLogo}
               size="sm"
               className="shrink-0"
-              alt={activeAppTitle}
+              alt={activeSchoolDisplayName || activeAppTitle}
             />
             {!sidebarCollapsed && (
-              <span className="text-[13px] font-extrabold text-slate-900 dark:text-slate-100 leading-snug line-clamp-2">
-                {activeAppTitle}
-              </span>
+              <div className="min-w-0">
+                <span className="block text-[13px] font-extrabold text-slate-900 dark:text-slate-100 leading-snug truncate">
+                  {activeSchoolDisplayName}
+                </span>
+                <span className="block text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate">
+                  {activeAppTitle}
+                </span>
+              </div>
             )}
           </button>
 
@@ -566,7 +583,9 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                           <optgroup key={complex.id} label={complex.name}>
                             {groupSchools.map((school) => (
                               <option key={school.id} value={school.id}>
-                                {school.id === activeSchoolId ? activeSchoolDisplayName : school.name}
+                                {school.id === activeSchoolId
+                                  ? activeSchoolDisplayName
+                                  : schoolDisplayNameById.get(school.id) || school.name}
                               </option>
                             ))}
                           </optgroup>
@@ -574,7 +593,9 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                       })
                     : schools.map((school) => (
                         <option key={school.id} value={school.id}>
-                          {school.id === activeSchoolId ? activeSchoolDisplayName : school.name}
+                          {school.id === activeSchoolId
+                            ? activeSchoolDisplayName
+                            : schoolDisplayNameById.get(school.id) || school.name}
                         </option>
                       ))}
                 </select>
@@ -686,15 +707,15 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                 <SystemBrandLogo
                   logoDataUrl={effectiveBrandLogo}
                   size="sm"
-                  alt={activeAppTitle}
+                  alt={activeSchoolDisplayName || activeAppTitle}
                   className="shrink-0"
                 />
                 <div className="min-w-0">
                   <div className="text-xs font-extrabold text-slate-900 dark:text-white truncate">
-                    {activeAppTitle}
+                    {activeSchoolDisplayName}
                   </div>
                   <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                    {activeSchoolDisplayName}
+                    {activeAppTitle}
                   </div>
                 </div>
               </div>

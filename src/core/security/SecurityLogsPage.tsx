@@ -115,6 +115,12 @@ const EVENT_TYPE_META: Record<
       'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800',
     Icon: ShieldCheck,
   },
+  school_branding_updated: {
+    labelFa: 'تغییر لوگو و سربرگ مدرسه',
+    badgeClass:
+      'bg-sky-50 text-sky-800 border-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800',
+    Icon: Building2,
+  },
 };
 
 export const SecurityLogsPage: React.FC = () => {

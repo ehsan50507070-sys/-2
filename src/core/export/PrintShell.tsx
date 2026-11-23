@@ -27,12 +27,11 @@ export const PrintShell: React.FC<PrintShellProps> = ({
   const { schoolLogoUrl, activeSchoolDisplayName, activePrintSubtitle, branding } = useAppearance();
   const effectiveLogo =
     schoolLogoUrl ||
-    globalSystemConfig?.systemLogoDataUrl ||
     school.logoDataUrl ||
+    globalSystemConfig?.systemLogoDataUrl ||
     DEFAULT_BRAND_LOGO_DATA_URL;
-  const letterheadTitle = branding?.schoolDisplayName?.trim()
-    ? `${school.letterheadTitle} (${activeSchoolDisplayName})`
-    : school.letterheadTitle;
+  const letterheadTitle =
+    branding?.schoolDisplayName?.trim() || school.letterheadTitle || school.name;
 
   return (
     <div className={`print-container ${landscape ? 'print-landscape' : ''}`}>

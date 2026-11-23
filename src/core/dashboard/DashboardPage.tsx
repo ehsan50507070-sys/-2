@@ -1157,6 +1157,16 @@ export const DashboardPage: React.FC = () => {
 
           <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
             <PrintButtons documentLabel="خلاصه داشبورد مدرسه" compact />
+            {roleDef.canEditSchoolSettings && activeRole !== 'super_admin' && (
+              <button
+                type="button"
+                onClick={() => navigate('/settings')}
+                className="min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-100 text-sm font-semibold px-4 py-2 transition-colors whitespace-nowrap"
+              >
+                <Building2 className="w-4 h-4 shrink-0 brand-text" />
+                لوگو و سربرگ مدرسه
+              </button>
+            )}
             {roleDef.canManageDirectory && (
               <button
                 type="button"

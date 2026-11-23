@@ -1136,15 +1136,20 @@ export interface UserAppearancePreference {
 }
 
 export interface SchoolBrandingConfig {
-  id: string; // `${schoolId}:branding`
-  schoolId: string;
+  id: string; // UUID (unique per schoolId in IDataRepository)
+  complexId?: string; // Parent EducationalComplex id for strict tenant isolation
+  schoolId: string; // Unique key per school
   appTitle?: string; // عنوان اصلی سامانه در نوار بالا
-  schoolDisplayName?: string; // نام نمایشی مدرسه فعال
-  printSubtitle?: string; // شعار / زیرعنوان سربرگ چاپ A4 و A5
-  logoMediaId?: string; // Stored in IndexedDB mediaBlobs (max 2MB)
+  schoolDisplayName?: string; // نام نمایشی مدرسه در سربرگ
+  printSubtitle?: string; // شعار / زیرعنوان رسمی برگه‌های چاپی A4 و A5
+  logoDataUrl?: string; // Compressed school logo data URL stored per schoolId
+  logoMediaId?: string; // Optional legacy IndexedDB mediaBlob reference (max 2MB)
   sectionLabels: Record<string, string>; // sectionId (plugin/core id) -> custom Persian label
   updatedByName: string;
+  updatedByRole?: RoleId;
   updatedAt: string;
+  createdAtIso?: string;
+  updatedAtIso?: string;
 }
 
 // --- Phase 6: Integrated School Finance & Tuition ---
@@ -1787,7 +1792,8 @@ export type SecurityAuditEventType =
   | 'anti_wipe_triggered'
   | 'soft_delete_restored'
   | 'migration_executed'
-  | 'backup_restored';
+  | 'backup_restored'
+  | 'school_branding_updated';
 
 export interface SecurityAuditLogEntry extends NormalizedRelationalDto {
   eventType: SecurityAuditEventType;

@@ -13,6 +13,7 @@ import {
 import { toPersianDigits } from '../../lib/digits';
 import type { LoginBackgroundConfig } from '../../types/domain';
 import { OFFICIAL_SYSTEM_NAME_FA, SystemBrandLogo } from '../branding/BrandLogo';
+import { SchoolPrintBrandingManager } from '../branding/SchoolPrintBrandingManager';
 import { useSchoolData } from '../data/DataContext';
 import {
   compressImageFileToDataUrl,
@@ -187,6 +188,9 @@ export const LoginBackgroundStudioTab: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Per-School Logo & Print Letterhead Manager (100% Dynamic Across All Complexes & Schools) */}
+      <SchoolPrintBrandingManager mode="multi_school_admin" compact />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         {/* Controls Column */}

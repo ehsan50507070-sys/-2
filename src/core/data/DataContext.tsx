@@ -178,9 +178,11 @@ import { hashPasswordSync } from '../security/cryptoService';
 import {
   generateUUID,
   sanitizeText,
+  sanitizeUrl,
   validateNonPersianUsername,
   validateStrongPassword,
 } from '../security/sanitize';
+import { deleteMediaBlob } from './mediaBlobStore';
 import {
   buildPluginRuntimeStatuses,
   computeStudentAttendanceSummary,
@@ -441,6 +443,8 @@ interface DataContextValue {
   sidaSpeedEntryTicks: SidaSpeedEntryRecord[];
   userAppearancePref: UserAppearancePreference | null;
   schoolBrandingConfig: SchoolBrandingConfig | null;
+  /** Role-scoped branding configs: super_admin sees all schools, complex_admin sees own complex, principal sees ONLY own school */
+  schoolBrandingConfigs: SchoolBrandingConfig[];
 
   // Phase 6 Strictly Role-Scoped & School-Scoped Datasets
   financeFeePlans: FinanceFeePlan[];
@@ -619,6 +623,13 @@ interface DataContextValue {
     config: SchoolBrandingConfig,
     applyToAllSchools?: boolean
   ) => Promise<MutationResult>;
+  saveSchoolPrintBranding: (input: {
+    schoolId: string;
+    schoolDisplayName: string;
+    printSubtitle: string;
+    logoDataUrl?: string | null;
+    isArchivedYear?: boolean;
+  }) => Promise<MutationResult & { config?: SchoolBrandingConfig }>;
 
   // Phase 6 RBAC-Guarded Mutations
   upsertFinanceFeePlan: (plan: FinanceFeePlan) => MutationResult;
@@ -2169,6 +2180,19 @@ export const DataProvider: React.FC<{
       dataset.school_branding_configs.find((c) => c.schoolId === resolvedSchoolId) ?? null
     );
   }, [dataset.school_branding_configs, resolvedSchoolId]);
+
+  const schoolBrandingConfigs = useMemo<SchoolBrandingConfig[]>(() => {
+    if (!session) return [];
+    if (activeRole === 'super_admin') {
+      return dataset.school_branding_configs;
+    }
+    if (activeRole === 'complex_admin') {
+      const allowedIds = new Set(schools.map((s) => s.id));
+      return dataset.school_branding_configs.filter((c) => allowedIds.has(c.schoolId));
+    }
+    // Strictly isolated to current schoolId for principal and all other roles
+    return dataset.school_branding_configs.filter((c) => c.schoolId === resolvedSchoolId);
+  }, [activeRole, dataset.school_branding_configs, resolvedSchoolId, schools, session]);
 
   // --- Phase 6 Strictly Role-Scoped & School-Scoped Datasets ---
   const financeFeePlans = useMemo(() => {
@@ -5391,19 +5415,36 @@ export const DataProvider: React.FC<{
           ? schools.map((s) => s.id)
           : [resolvedSchoolId];
 
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       const nowIso = new Date().toISOString();
-      const nextItems: SchoolBrandingConfig[] = targetSchoolIds.map((sid) => ({
-        ...config,
-        id: `${sid}:branding`,
-        schoolId: sid,
-        // When cloning across all 3 schools, keep each school's own display name unless explicitly set for single school
-        schoolDisplayName:
-          applyToAllSchools && sid !== resolvedSchoolId
-            ? dataset.school_branding_configs.find((c) => c.schoolId === sid)?.schoolDisplayName
-            : config.schoolDisplayName,
-        updatedByName: session.displayName,
-        updatedAt: nowIso,
-      }));
+      const nextItems: SchoolBrandingConfig[] = targetSchoolIds.map((sid) => {
+        const existing = dataset.school_branding_configs.find((c) => c.schoolId === sid);
+        const schoolRec = dataset.schools.find((s) => s.id === sid);
+        const id = existing && uuidRegex.test(existing.id) ? existing.id : generateUUID();
+        const createdAtIso = existing?.createdAtIso ?? existing?.updatedAt ?? nowIso;
+        return {
+          ...existing,
+          ...config,
+          id,
+          complexId: schoolRec?.complexId ?? existing?.complexId ?? 'complex-1',
+          schoolId: sid,
+          // When cloning across multiple schools, keep each school's own display name & logo unless explicitly set for single school
+          schoolDisplayName:
+            applyToAllSchools && sid !== resolvedSchoolId
+              ? existing?.schoolDisplayName
+              : config.schoolDisplayName,
+          logoDataUrl:
+            applyToAllSchools && sid !== resolvedSchoolId
+              ? existing?.logoDataUrl
+              : config.logoDataUrl ?? existing?.logoDataUrl,
+          updatedByName: session.displayName,
+          updatedByRole: activeRole,
+          updatedAt: nowIso,
+          createdAtIso,
+          updatedAtIso: nowIso,
+        };
+      });
 
       for (const item of nextItems) {
         const dec = authorizeMutation(authGuardContext, 'school_branding_configs', 'write', {
@@ -5413,25 +5454,216 @@ export const DataProvider: React.FC<{
         if (!dec.allowed) return { ok: false, errorFa: dec.reasonFa };
       }
 
-      const mapById = new Map(nextItems.map((i) => [i.id, i]));
+      const updatedSchoolIds = new Set(nextItems.map((i) => i.schoolId));
       setDataset((prev) => {
-        const updatedIds = new Set(nextItems.map((i) => i.id));
-        const kept = prev.school_branding_configs.filter((c) => !updatedIds.has(c.id));
+        const kept = prev.school_branding_configs.filter((c) => !updatedSchoolIds.has(c.schoolId));
         return {
           ...prev,
           school_branding_configs: [...kept, ...nextItems],
         };
       });
 
-      void mapById;
       await sharedRepository.putMany('school_branding_configs', nextItems).catch(() => {});
       return { ok: true };
     },
     [
+      activeRole,
       authGuardContext,
       dataset.school_branding_configs,
+      dataset.schools,
       resolvedSchoolId,
       roleDef.canBatchManageAllSchoolsAddons,
+      schools,
+      session,
+    ]
+  );
+
+  const saveSchoolPrintBranding = useCallback(
+    async (input: {
+      schoolId: string;
+      schoolDisplayName: string;
+      printSubtitle: string;
+      logoDataUrl?: string | null;
+      isArchivedYear?: boolean;
+    }): Promise<MutationResult & { config?: SchoolBrandingConfig }> => {
+      if (!session) return { ok: false, errorFa: 'لطفاً ابتدا وارد سامانه شوید.' };
+
+      if (input.isArchivedYear) {
+        return {
+          ok: false,
+          errorFa: 'در حالت مشاهده سال تحصیلی آرشیو، امکان ویرایش لوگو و سربرگ چاپی مدرسه وجود ندارد.',
+        };
+      }
+
+      // Strict RBAC & multi-tenant schoolId isolation
+      const targetSchoolId = input.schoolId.trim();
+      if (activeRole === 'principal') {
+        if (targetSchoolId !== session.schoolId) {
+          return {
+            ok: false,
+            errorFa:
+              'تخلف ایزوله‌سازی مدرسه: مدیر مدرسه فقط مجاز به مشاهده و ویرایش لوگو و سربرگ مدرسه خود است.',
+          };
+        }
+      } else if (activeRole === 'complex_admin') {
+        if (!schools.some((s) => s.id === targetSchoolId)) {
+          return {
+            ok: false,
+            errorFa: 'شما فقط مجاز به مدیریت مدارس زیرمجموعه خود هستید.',
+          };
+        }
+      } else if (activeRole !== 'super_admin') {
+        return {
+          ok: false,
+          errorFa: 'تغییر لوگو و سربرگ چاپی مدرسه صرفاً در اختیار مدیر مدرسه و راهبر ارشد سامانه است.',
+        };
+      }
+
+      const targetSchool = dataset.schools.find((s) => s.id === targetSchoolId);
+      if (!targetSchool) {
+        return { ok: false, errorFa: 'مدرسه انتخاب‌شده در سامانه یافت نشد.' };
+      }
+
+      if (isSchoolUnderPanicLock(panicModeState, targetSchool.id)) {
+        return {
+          ok: false,
+          errorFa:
+            'سامانه برای این مدرسه در حالت «قفل اضطراری (فقط‌خواندنی)» قرار دارد؛ ویرایش لوگو و سربرگ تا رفع قفل مسدود است.',
+        };
+      }
+
+      const existing = dataset.school_branding_configs.find((c) => c.schoolId === targetSchool.id);
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const recordId = existing && uuidRegex.test(existing.id) ? existing.id : generateUUID();
+      const nowIso = new Date().toISOString();
+      const createdAtIso = existing?.createdAtIso ?? existing?.updatedAt ?? nowIso;
+      const complexId = targetSchool.complexId ?? existing?.complexId ?? 'complex-1';
+
+      const cleanDisplayName = sanitizeText(input.schoolDisplayName, 140);
+      const cleanPrintSubtitle = sanitizeText(input.printSubtitle, 200);
+
+      let nextLogoDataUrl: string | undefined;
+      if (input.logoDataUrl === null || input.logoDataUrl === '') {
+        nextLogoDataUrl = undefined;
+      } else if (typeof input.logoDataUrl === 'string') {
+        const safeUrl = sanitizeUrl(input.logoDataUrl);
+        if (!safeUrl || !/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(safeUrl)) {
+          return {
+            ok: false,
+            errorFa: 'فرمت تصویر لوگوی مدرسه نامعتبر است. لطفاً تصویر PNG، JPG یا WebP انتخاب کنید.',
+          };
+        }
+        nextLogoDataUrl = safeUrl;
+      } else {
+        nextLogoDataUrl = existing?.logoDataUrl ?? targetSchool.logoDataUrl;
+      }
+
+      const nextConfig: SchoolBrandingConfig = {
+        ...existing,
+        id: recordId,
+        complexId,
+        schoolId: targetSchool.id,
+        schoolDisplayName: cleanDisplayName || undefined,
+        printSubtitle: cleanPrintSubtitle || undefined,
+        logoDataUrl: nextLogoDataUrl,
+        logoMediaId: undefined,
+        sectionLabels: existing?.sectionLabels ?? {},
+        updatedByName: session.displayName,
+        updatedByRole: activeRole,
+        updatedAt: nowIso,
+        createdAtIso,
+        updatedAtIso: nowIso,
+      };
+
+      const brandingDecision = authorizeMutation(
+        authGuardContext,
+        'school_branding_configs',
+        'write',
+        {
+          schoolId: targetSchool.id,
+          record: nextConfig,
+        }
+      );
+      if (!brandingDecision.allowed) {
+        return { ok: false, errorFa: brandingDecision.reasonFa };
+      }
+
+      const updatedSchool: School = {
+        ...targetSchool,
+        logoDataUrl: nextLogoDataUrl,
+        letterheadTitle: cleanDisplayName || targetSchool.letterheadTitle,
+        letterheadSubtitle: cleanPrintSubtitle || targetSchool.letterheadSubtitle,
+        updatedAt: nowIso,
+      };
+
+      const schoolDecision = authorizeMutation(authGuardContext, 'schools', 'write', {
+        schoolId: targetSchool.id,
+        record: updatedSchool,
+      });
+      if (!schoolDecision.allowed) {
+        return { ok: false, errorFa: schoolDecision.reasonFa };
+      }
+
+      if (existing?.logoMediaId) {
+        void deleteMediaBlob(existing.logoMediaId).catch(() => {});
+      }
+
+      setDataset((prev) => ({
+        ...prev,
+        school_branding_configs: [
+          ...prev.school_branding_configs.filter((c) => c.schoolId !== targetSchool.id),
+          nextConfig,
+        ],
+        schools: prev.schools.map((s) => (s.id === targetSchool.id ? updatedSchool : s)),
+      }));
+
+      try {
+        await sharedRepository.putItem('school_branding_configs', nextConfig);
+        await sharedRepository.saveSchool(updatedSchool);
+      } catch (err) {
+        return {
+          ok: false,
+          errorFa:
+            err instanceof Error
+              ? err.message
+              : 'خطا در ذخیره‌سازی لوگو و سربرگ مدرسه در مخزن داده.',
+        };
+      }
+
+      const changedParts: string[] = [];
+      const prevLogo = existing?.logoDataUrl ?? targetSchool.logoDataUrl ?? '';
+      if ((nextLogoDataUrl ?? '') !== prevLogo) {
+        changedParts.push(nextLogoDataUrl ? 'بارگذاری/تغییر لوگوی مدرسه' : 'حذف لوگوی مدرسه');
+      }
+      if ((cleanDisplayName || '') !== (existing?.schoolDisplayName ?? '')) {
+        changedParts.push(`نام نمایشی سربرگ («${cleanDisplayName || targetSchool.name}»)`);
+      }
+      if ((cleanPrintSubtitle || '') !== (existing?.printSubtitle ?? '')) {
+        changedParts.push(`زیرعنوان چاپی («${cleanPrintSubtitle || targetSchool.letterheadSubtitle}»)`);
+      }
+      const changeSummary =
+        changedParts.length > 0 ? changedParts.join('، ') : 'به‌روزرسانی تنظیمات لوگو و سربرگ چاپی';
+
+      logSecurityEvent({
+        eventType: 'school_branding_updated',
+        schoolId: targetSchool.id,
+        complexId,
+        username: session.username,
+        displayName: session.displayName,
+        role: activeRole,
+        detailsFa: `ویرایش لوگو و سربرگ چاپی مدرسه «${targetSchool.name}» توسط ${session.displayName} (${ROLE_DEFINITIONS[activeRole].labelFa}): ${changeSummary}`,
+      });
+
+      return { ok: true, config: nextConfig };
+    },
+    [
+      activeRole,
+      authGuardContext,
+      dataset.school_branding_configs,
+      dataset.schools,
+      logSecurityEvent,
+      panicModeState,
       schools,
       session,
     ]
@@ -8252,6 +8484,7 @@ export const DataProvider: React.FC<{
     sidaSpeedEntryTicks,
     userAppearancePref,
     schoolBrandingConfig,
+    schoolBrandingConfigs,
     financeFeePlans,
     financeLedgers,
     financePayments,
@@ -8355,6 +8588,7 @@ export const DataProvider: React.FC<{
     upsertSidaSpeedEntryRecord,
     saveUserAppearancePreference,
     saveSchoolBrandingConfig,
+    saveSchoolPrintBranding,
     upsertFinanceFeePlan,
     upsertFinanceLedger,
     recordFinancePayment,

@@ -23,6 +23,7 @@ import type {
 } from '../../types/domain';
 import { useAcademicYear } from '../academic-year/AcademicYearContext';
 import { AcademicYearManagerPanel } from '../academic-year/AcademicYearManagerPanel';
+import { SchoolPrintBrandingManager } from '../branding/SchoolPrintBrandingManager';
 import { useSchoolData } from '../data/DataContext';
 import { generateUUID, sanitizeText } from '../security/sanitize';
 import { SensitiveActionModal } from '../security/SensitiveActionModal';
@@ -56,6 +57,7 @@ export const SchoolSettingsPage: React.FC = () => {
     schoolBrandingConfig,
     schoolAnnouncements,
     recoverySnapshots,
+    isActiveSchoolPanicLocked,
     updateActiveSchool,
     saveSchoolBrandingConfig,
     upsertSchoolAnnouncement,
@@ -126,7 +128,9 @@ export const SchoolSettingsPage: React.FC = () => {
   }, [schoolBrandingConfig]);
 
   const readOnly =
-    (!roleDef.canEditSchoolSettings && activeRole !== 'super_admin') || isViewingArchivedYear;
+    (!roleDef.canEditSchoolSettings && activeRole !== 'super_admin') ||
+    isViewingArchivedYear ||
+    isActiveSchoolPanicLocked;
 
   const toggleWorkday = (day: PersianWeekdayIndex) => {
     if (readOnly) return;
@@ -215,14 +219,18 @@ export const SchoolSettingsPage: React.FC = () => {
       if (val) cleaned[k] = val;
     }
     const res = await saveSchoolBrandingConfig({
-      id: schoolBrandingConfig?.id ?? `${activeSchoolId}:branding`,
+      id: schoolBrandingConfig?.id ?? generateUUID(),
+      complexId: activeSchool.complexId ?? schoolBrandingConfig?.complexId ?? 'complex-1',
       schoolId: activeSchoolId,
       appTitle: schoolBrandingConfig?.appTitle,
       schoolDisplayName: schoolBrandingConfig?.schoolDisplayName,
       printSubtitle: schoolBrandingConfig?.printSubtitle,
+      logoDataUrl: schoolBrandingConfig?.logoDataUrl,
       logoMediaId: schoolBrandingConfig?.logoMediaId,
       sectionLabels: cleaned,
       updatedByName: session?.displayName ?? activeSchool.principalName,
+      updatedByRole: activeRole,
+      createdAtIso: schoolBrandingConfig?.createdAtIso,
       updatedAt: new Date().toISOString(),
     });
     if (!res.ok) {
@@ -355,9 +363,11 @@ export const SchoolSettingsPage: React.FC = () => {
         <div className="rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 p-4 text-sm text-amber-900 dark:text-amber-200 flex items-center gap-2">
           <Lock className="w-4 h-4 shrink-0" />
           <span>
-            {isViewingArchivedYear
-              ? 'در حالت مشاهده سال تحصیلی آرشیو، تنظیمات مدرسه فقط‌خواندنی است.'
-              : `شما در حال مشاهده تنظیمات با نقش «${roleDef.labelFa}» هستید. ویرایش تنها توسط مدیر مدرسه، مدیر کل یا راهبر ارشد امکان‌پذیر است.`}
+            {isActiveSchoolPanicLocked
+              ? 'قفل اضطراری سامانه برای این مدرسه فعال است — تمام تنظیمات تا زمان رفع قفل فقط‌خواندنی می‌باشد.'
+              : isViewingArchivedYear
+                ? 'در حالت مشاهده سال تحصیلی آرشیو، تنظیمات مدرسه فقط‌خواندنی است.'
+                : `شما در حال مشاهده تنظیمات با نقش «${roleDef.labelFa}» هستید. ویرایش تنها توسط مدیر مدرسه، مدیر کل یا راهبر ارشد امکان‌پذیر است.`}
           </span>
         </div>
       )}
@@ -365,6 +375,9 @@ export const SchoolSettingsPage: React.FC = () => {
       {/* ==================== TAB 1: GENERAL SCHOOL SETTINGS ==================== */}
       {activeTab === 'general' && (
         <div className="space-y-6">
+          {/* Dedicated School Logo & Official Print Letterhead Manager (strictly scoped to active school) */}
+          <SchoolPrintBrandingManager mode="single_school" />
+
           <form
             onSubmit={(e) => void handleSave(e)}
             className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 space-y-6"

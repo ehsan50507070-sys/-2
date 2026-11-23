@@ -1,21 +1,17 @@
-// Tab 2: Global Label & Terminology Customizer + School Branding Controls (Phase 8A Super Admin Governance)
+// Tab 2: Global Label & Terminology Customizer + Dynamic Multi-School Branding Controls (Phase 8A Super Admin Governance)
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Building2,
   CheckCircle2,
-  ImagePlus,
   RotateCcw,
   Save,
   Search,
   Tag,
-  Trash2,
 } from 'lucide-react';
 import { toPersianDigits } from '../../lib/digits';
-import { useAppearance } from '../appearance/AppearanceContext';
+import { SchoolPrintBrandingManager } from '../branding/SchoolPrintBrandingManager';
 import { useSchoolData } from '../data/DataContext';
 import {
   buildFullLabelCatalog,
-  compressImageFileToDataUrl,
   type GlobalLabelCategory,
 } from './superAdminHelpers';
 
@@ -32,12 +28,7 @@ export const GlobalLabelCustomizerTab: React.FC = () => {
     globalSystemConfig,
     updateGlobalLabels,
     resetGlobalLabels,
-    activeSchool,
-    schoolBrandingConfig,
-    saveSchoolBrandingConfig,
-    updateSchoolUnit,
   } = useSchoolData();
-  const { schoolLogoUrl, refreshSchoolLogo } = useAppearance();
 
   const catalog = useMemo(() => buildFullLabelCatalog(allManifests), [allManifests]);
 
@@ -47,24 +38,10 @@ export const GlobalLabelCustomizerTab: React.FC = () => {
   const [category, setCategory] = useState<GlobalLabelCategory | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [logoStatus, setLogoStatus] = useState<string | null>(null);
-
-  // School letterhead/branding fields migrated cleanly from removed site-user-settings page
-  const [schoolDisplayName, setSchoolDisplayName] = useState(
-    schoolBrandingConfig?.schoolDisplayName ?? activeSchool?.name ?? ''
-  );
-  const [printSubtitle, setPrintSubtitle] = useState(
-    schoolBrandingConfig?.printSubtitle ?? activeSchool?.letterheadSubtitle ?? ''
-  );
 
   useEffect(() => {
     setDraftLabels({ ...(globalSystemConfig?.labels ?? {}) });
   }, [globalSystemConfig?.labels]);
-
-  useEffect(() => {
-    setSchoolDisplayName(schoolBrandingConfig?.schoolDisplayName ?? activeSchool?.name ?? '');
-    setPrintSubtitle(schoolBrandingConfig?.printSubtitle ?? activeSchool?.letterheadSubtitle ?? '');
-  }, [schoolBrandingConfig, activeSchool]);
 
   const filteredItems = useMemo(() => {
     return catalog.filter((item) => {
@@ -100,53 +77,6 @@ export const GlobalLabelCustomizerTab: React.FC = () => {
       setFeedback('تمام نام‌ها و واژگان کلیدی به مقادیر پیشفرض بازگردانی شدند.');
       setTimeout(() => setFeedback(null), 4000);
     }
-  };
-
-  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !activeSchool) return;
-    try {
-      const compressed = await compressImageFileToDataUrl(file, { maxWidth: 512, quality: 0.8 });
-      if (!compressed.ok || !compressed.dataUrl) {
-        setLogoStatus(compressed.errorFa ?? 'خطا در پردازش تصویر لوگو.');
-        return;
-      }
-      await updateSchoolUnit({ ...activeSchool, logoDataUrl: compressed.dataUrl });
-      refreshSchoolLogo();
-      setLogoStatus(
-        `لوگوی «${activeSchool.name}» با موفقیت فشرده‌سازی (${toPersianDigits(compressed.sizeKb ?? 1)} کیلوبایت) و ذخیره شد.`
-      );
-      setTimeout(() => setLogoStatus(null), 4000);
-    } catch (err) {
-      setLogoStatus(err instanceof Error ? err.message : 'خطا در پردازش تصویر لوگو.');
-    } finally {
-      e.target.value = '';
-    }
-  };
-
-  const handleRemoveLogo = async () => {
-    if (!activeSchool) return;
-    await updateSchoolUnit({ ...activeSchool, logoDataUrl: undefined });
-    refreshSchoolLogo();
-    setLogoStatus('لوگوی اختصاصی مدرسه فعال حذف شد.');
-    setTimeout(() => setLogoStatus(null), 3000);
-  };
-
-  const handleSaveSchoolBranding = async () => {
-    if (!activeSchool) return;
-    await saveSchoolBrandingConfig({
-      id: `${activeSchool.id}:branding`,
-      schoolId: activeSchool.id,
-      appTitle: draftLabels['site.name'] || schoolBrandingConfig?.appTitle || '',
-      schoolDisplayName: schoolDisplayName.trim(),
-      printSubtitle: printSubtitle.trim(),
-      logoMediaId: schoolBrandingConfig?.logoMediaId,
-      sectionLabels: schoolBrandingConfig?.sectionLabels ?? {},
-      updatedByName: 'راهبر ارشد سامانه',
-      updatedAt: new Date().toISOString(),
-    });
-    setLogoStatus('مشخصات سربرگ چاپی و نام نمایشی مدرسه فعال ذخیره شد.');
-    setTimeout(() => setLogoStatus(null), 3500);
   };
 
   return (
@@ -291,100 +221,8 @@ export const GlobalLabelCustomizerTab: React.FC = () => {
         </div>
       </div>
 
-      {/* Migrated School Logo & Letterhead Branding Section */}
-      {activeSchool && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Building2 className="h-4 w-4 brand-text" />
-              <div>
-                <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                  لوگو و سربرگ چاپی مدرسه فعال ({activeSchool.name})
-                </h3>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  در تمام چاپ‌های A4 و A5 و هدر منوی کناری نمایش داده می‌شود.
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={handleSaveSchoolBranding}
-              className="brand-btn inline-flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-bold"
-            >
-              <Save className="h-3.5 w-3.5" />
-              <span>ذخیره سربرگ مدرسه</span>
-            </button>
-          </div>
-
-          {logoStatus && (
-            <div className="mb-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-800 dark:border-sky-900/50 dark:bg-sky-950/40 dark:text-sky-300">
-              {logoStatus}
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-800/50">
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-                {schoolLogoUrl ? (
-                  <img
-                    src={schoolLogoUrl}
-                    alt={activeSchool.name}
-                    className="h-full w-full object-contain p-1"
-                  />
-                ) : (
-                  <Building2 className="h-6 w-6 text-slate-400" />
-                )}
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-                  <ImagePlus className="h-3.5 w-3.5" />
-                  <span>بارگذاری لوگوی مدرسه</span>
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    onChange={handleLogoUpload}
-                    className="hidden"
-                  />
-                </label>
-                {schoolLogoUrl && (
-                  <button
-                    type="button"
-                    onClick={handleRemoveLogo}
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-600 hover:underline dark:text-rose-400"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                    <span>حذف لوگو</span>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-xs font-bold text-slate-600 dark:text-slate-300">
-                نام نمایشی مدرسه در سربرگ
-              </label>
-              <input
-                type="text"
-                value={schoolDisplayName}
-                onChange={(e) => setSchoolDisplayName(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-xs font-bold text-slate-600 dark:text-slate-300">
-                زیرعنوان رسمی برگه‌های چاپی
-              </label>
-              <input
-                type="text"
-                value={printSubtitle}
-                onChange={(e) => setPrintSubtitle(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-900 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-              />
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Dynamic Multi-School Logo & Official Print Letterhead Manager */}
+      <SchoolPrintBrandingManager mode="multi_school_admin" />
     </div>
   );
 };

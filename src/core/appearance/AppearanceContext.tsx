@@ -122,11 +122,17 @@ export const AppearanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, [appearance, darkMode, setDarkModeDirect, session]);
 
-  // Load active school custom logo blob from IndexedDB mediaBlobs, falling back to compressed school.logoDataUrl
+  // Load active school custom logo: direct compressed dataUrl in SchoolBrandingConfig -> legacy mediaBlob -> school.logoDataUrl
   useEffect(() => {
     let active = true;
     let objectUrl: string | null = null;
+    const directDataUrl = schoolBrandingConfig?.logoDataUrl;
     const mediaId = schoolBrandingConfig?.logoMediaId;
+
+    if (directDataUrl) {
+      setLogoUrl(directDataUrl);
+      return;
+    }
 
     if (!mediaId) {
       setLogoUrl(activeSchool?.logoDataUrl ?? null);
@@ -149,7 +155,13 @@ export const AppearanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [schoolBrandingConfig?.logoMediaId, activeSchool?.logoDataUrl, activeSchoolId, logoRefreshNonce]);
+  }, [
+    schoolBrandingConfig?.logoDataUrl,
+    schoolBrandingConfig?.logoMediaId,
+    activeSchool?.logoDataUrl,
+    activeSchoolId,
+    logoRefreshNonce,
+  ]);
 
   const updateAppearance = useCallback(
     (patch: Partial<UserAppearancePreference>): MutationResult => {
