@@ -1,0 +1,8 @@
+{
+  "name": "Remix تکمل گام3 -ب ",
+  "description": "سامانه یکپارچه و آفلاین‌محور مدیریت هوشمند مجموعه مدارس با معماری بسته‌های الحاقی و حفظ کامل داده‌ها",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
